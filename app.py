@@ -206,7 +206,7 @@ if uploaded:
         has_liveblog = has_type("LiveBlogPosting")
         has_author = out["has_author"].fillna(False)
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("% con NewsArticle", f"{pct(has_newsarticle)}%")
         c2.metric("% con Article", f"{pct(has_article)}%")
         c3.metric("% con author", f"{pct(has_author)}%")
@@ -248,5 +248,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
