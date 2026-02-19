@@ -6,15 +6,12 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-# Configuración de página
 st.set_page_config(page_title="Detector de Datos Estructurados", layout="wide")
 
-# --- FUNCIONES DE EXTRACCIÓN Y LÓGICA ---
+# --- FUNCIONES DE EXTRACCIÓN ---
 
 def fetch_html(url: str, timeout: int = 20) -> Tuple[Optional[str], Optional[int], Optional[str]]:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     try:
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         return r.text, r.status_code, None
@@ -34,150 +31,113 @@ def parse_jsonld_from_html(html: str) -> Tuple[List[Any], List[str]]:
             errors.append(f"Bloque {i}: {e}")
     return blocks, errors
 
-def extract_types(block: Any) -> List[str]:
-    types = []
-    def walk(node: Any):
+def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str]]:
+    """Separa tipos principales (raíz) de tipos anidados."""
+    mains = []
+    subtypes = []
+
+    def walk(node: Any, is_root: bool):
         if isinstance(node, dict):
             if "@type" in node:
                 t = node["@type"]
-                if isinstance(t, list): types.extend([str(x) for x in t])
-                else: types.append(str(t))
-            if "@graph" in node: walk(node["@graph"])
-            for v in node.values(): walk(v)
+                current_types = [t] if isinstance(t, str) else [str(x) for x in t]
+                if is_root:
+                    mains.extend(current_types)
+                else:
+                    subtypes.extend(current_types)
+            
+            # Al entrar en cualquier valor de un diccionario, lo que sigue es anidado
+            for k, v in node.items():
+                if k == "@graph": # El @graph contiene nodos raíz
+                    walk(v, True)
+                else:
+                    walk(v, False)
         elif isinstance(node, list):
-            for it in node: walk(it)
-    walk(block)
-    return list(dict.fromkeys(types))
+            for it in node:
+                walk(it, is_root)
 
-def check_nested(blocks: List[Any], parent_type: str, child_key_or_type: str) -> bool:
-    """Verifica si un ParentType tiene un ChildType o propiedad anidada."""
-    def search(node: Any, p_found: bool) -> bool:
-        if isinstance(node, dict):
-            current_types = node.get("@type", [])
-            if isinstance(current_types, str): current_types = [current_types]
-            
-            # Verificamos si este nodo es el padre buscado
-            is_parent = parent_type in current_types
-            
-            if p_found or is_parent:
-                # Buscamos el hijo en este nivel (como propiedad o como @type)
-                if child_key_or_type in node or child_key_or_type in str(node.get("@type", "")):
-                    return True
-                # Seguir buscando dentro de las ramas de este padre
-                return any(search(v, True) for v in node.values())
-            
-            # Si no es el padre, seguimos buscando el padre en niveles inferiores
-            return any(search(v, False) for v in node.values())
-        elif isinstance(node, list):
-            return any(search(it, p_found) for it in node)
-        return False
+    for b in blocks:
+        walk(b, True)
     
-    return any(search(b, False) for b in blocks)
+    return list(dict.fromkeys(mains)), list(dict.fromkeys(subtypes))
 
-# --- INTERFAZ STREAMLIT ---
+# --- INTERFAZ ---
 
-st.title("Detector de datos estructurados (Jerárquico)")
-st.caption("Subí un CSV para analizar Schemas Principales y sus elementos anidados.")
+st.title("Detector de datos estructurados desde CSV")
 
 with st.sidebar:
     st.header("Opciones")
     url_col = st.text_input("Nombre de la columna de URL", value="url")
+    site_name = st.text_input("Nombre del Sitio (para la columna Sitio)", value="Mi Sitio")
     timeout = st.slider("Timeout por URL (segundos)", 5, 60, 20)
     max_rows = st.number_input("Máx. filas a procesar", min_value=1, value=50, step=1)
-    show_raw = st.checkbox("Incluir JSON-LD crudo (pesado)", value=False)
 
 uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 
 if uploaded:
     df = pd.read_csv(uploaded)
-    if url_col not in df.columns:
-        st.error(f"No encuentro la columna '{url_col}'.")
-        st.stop()
-
     df = df.copy().head(int(max_rows))
-    st.write(f"Filas a procesar: **{len(df)}**")
 
     if st.button("Procesar"):
         results = []
         progress = st.progress(0.0)
-        status = st.empty()
-
+        
         for idx, url in enumerate(df[url_col].tolist(), start=1):
-            status.write(f"Procesando {idx}/{len(df)}: {url}")
             html, code, err = fetch_html(url, timeout=int(timeout))
-
+            
             row = {
                 "url": url,
+                "Sitio": site_name,
                 "http_status": code,
-                "news_main": False,
-                "news_with_image": False,
-                "news_with_author": False,
-                "article_main": False,
-                "liveblog_main": False,
-                "video_main": False,
-                "types": ""
+                "Type": "",
+                "Subtype": "",
+                "has_author": False
             }
 
             if html:
                 blocks, _ = parse_jsonld_from_html(html)
-                all_types = []
-                for b in blocks:
-                    all_types.extend(extract_types(b))
+                mains, subs = extract_hierarchical_types(blocks)
                 
-                row["types"] = ", ".join(list(dict.fromkeys(all_types)))
+                # Para el resumen original, buscamos 'author' en cualquier nivel
+                author_found = any("author" in str(b) for b in blocks)
                 
-                # Identificación de principales
-                row["news_main"] = "NewsArticle" in all_types
-                row["article_main"] = "Article" in all_types
-                row["liveblog_main"] = "LiveBlogPosting" in all_types
-                row["video_main"] = "VideoObject" in all_types
-                
-                # Identificación de anidados (Jerarquía)
-                if row["news_main"]:
-                    row["news_with_image"] = check_nested(blocks, "NewsArticle", "ImageObject")
-                    row["news_with_author"] = check_nested(blocks, "NewsArticle", "author")
-                
-                if show_raw:
-                    row["jsonld_raw"] = json.dumps(blocks, ensure_ascii=False)
+                row["Type"] = ", ".join(mains)
+                row["Subtype"] = ", ".join(subs)
+                row["has_author"] = author_found
 
             results.append(row)
             progress.progress(idx / len(df))
 
         out = pd.DataFrame(results)
+
+        # =========================
+        # Resumen Original (Tal como lo tenías)
+        # =========================
+        st.subheader("Resumen automático")
+        
+        def has_type(t: str) -> pd.Series:
+            return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
+
         pct = lambda s: round((s.mean() * 100), 1)
 
-        # --- SECCIÓN DE RESUMEN ---
-        st.subheader("📊 Resumen de Datos Estructurados")
-        
-        col_root, col_nest = st.columns(2)
-        
-        with col_root:
-            st.info("### Schemas Principales")
-            c1, c2 = st.columns(2)
-            c1.metric("NewsArticle", f"{pct(out['news_main'])}%")
-            c1.metric("LiveBlogPosting", f"{pct(out['liveblog_main'])}%")
-            c2.metric("Article", f"{pct(out['article_main'])}%")
-            c2.metric("VideoObject", f"{pct(out['video_main'])}%")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("% con NewsArticle", f"{pct(has_type('NewsArticle'))}%")
+        c2.metric("% con Article", f"{pct(has_type('Article'))}%")
+        c3.metric("% con author", f"{pct(out['has_author'])}%")
+        c4.metric("% con VideoObject", f"{pct(has_type('VideoObject'))}%")
+        c5.metric("% con LiveBlog", f"{pct(has_type('LiveBlogPosting'))}%")
 
-        with col_nest:
-            st.success("### Detalle Anidado")
-            a1, a2 = st.columns(2)
-            a1.metric("NewsArticle > Image", f"{pct(out['news_with_image'])}%")
-            a2.metric("NewsArticle > Author", f"{pct(out['news_with_author'])}%")
-            st.caption("Muestra si la entidad hija está DENTRO del NewsArticle.")
-
-        st.divider()
+        # =========================
+        # Resultados con nuevas columnas
+        # =========================
         st.subheader("Resultados")
-        st.dataframe(out, use_container_width=True)
+        # Mostramos exactamente las columnas pedidas
+        display_cols = ["url", "Sitio", "http_status", "Type", "Subtype"]
+        st.dataframe(out[display_cols], use_container_width=True)
 
-        csv_bytes = out.to_csv(index=False).encode("utf-8")
-        st.download_button("Descargar CSV", data=csv_bytes, file_name="resultado_schema_seo.csv")
+        csv_bytes = out[display_cols].to_csv(index=False).encode("utf-8")
+        st.download_button("Descargar resultados", data=csv_bytes, file_name="resultado_schema.csv")
 
-# --- FIRMA ---
+# Firma
 st.markdown("---")
-st.markdown(
-    """<div style="text-align:center; font-size:14px;">
-    Creado por <strong>Agustín Gutierrez</strong><br>
-    <a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a>
-    </div>""", unsafe_allow_html=True
-)
+st.markdown('<div style="text-align:center; font-size:14px;">Creado por <strong>Agustín Gutierrez</strong></div>', unsafe_allow_html=True)
