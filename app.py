@@ -203,6 +203,7 @@ if uploaded:
         has_newsarticle = has_type("NewsArticle")
         has_article = has_type("Article")
         has_videoobject = has_type("VideoObject")
+        has_liveblog = has_type("LiveBlogPosting")
         has_author = out["has_author"].fillna(False)
 
         c1, c2, c3, c4 = st.columns(4)
@@ -210,6 +211,7 @@ if uploaded:
         c2.metric("% con Article", f"{pct(has_article)}%")
         c3.metric("% con author", f"{pct(has_author)}%")
         c4.metric("% con VideoObject", f"{pct(has_videoobject)}%")
+        c5.metric("% con LiveBlog", f"{pct(has_liveblog)}%")
 
 
         # =========================
@@ -246,4 +248,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
