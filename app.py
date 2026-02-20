@@ -117,7 +117,7 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
 
 # --- INTERFAZ ---
 
-st.title("Detector de Datos Estructurados Pro")
+st.title("Detector de Datos Estructurados")
 
 with st.sidebar:
     st.header("Opciones")
@@ -217,4 +217,5 @@ if uploaded:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
+
 
