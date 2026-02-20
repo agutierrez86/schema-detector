@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="Análisis de Datos Estructurados", layout="wide")
+st.set_page_config(page_title="Sara vigila tu Schema", layout="wide")
 
 # --- FUNCIONES DE EXTRACCIÓN ---
 
@@ -117,7 +117,7 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
 
 # --- INTERFAZ ---
 
-st.title("Análisis de Datos Estructurados")
+st.title("Sara vigila tu Schema")
 
 with st.sidebar:
     st.header("Opciones")
@@ -217,6 +217,7 @@ if uploaded:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
+
 
 
 
