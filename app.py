@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="Detector de Datos Estructurados", layout="wide")
+st.set_page_config(page_title="Detector de Datos Estructurados Pro", layout="wide")
 
 # --- FUNCIONES DE EXTRACCIÓN ---
 
@@ -50,7 +50,7 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     def walk(node: Any):
         nonlocal created_date, last_modified
         if isinstance(node, dict):
-            if node.get("@type") == "LiveBlogPosting":
+            if "LiveBlogPosting" in str(node.get("@type", "")):
                 created_date = node.get("datePublished")
                 last_modified = node.get("dateModified")
                 
@@ -69,7 +69,6 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
 
     for b in blocks: walk(b)
     
-    # Calcular frecuencia
     freq = 0
     if len(update_dates) > 1:
         update_dates.sort()
@@ -95,11 +94,13 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
                 current_types = [t] if isinstance(t, str) else [str(x) for x in t]
                 if is_root: mains.extend(current_types)
                 else: subtypes.extend(current_types)
-                
-                # Extraer fechas si es NewsArticle
-                if "NewsArticle" in current_types:
-                    dates["pub"] = node.get("datePublished")
-                    dates["mod"] = node.get("dateModified")
+            
+            # Búsqueda agresiva de fechas: si existen en este nodo, las guardamos
+            # Esto ayuda con URLs tipo AMP como las de Informador.mx
+            if node.get("datePublished") and not dates["pub"]:
+                dates["pub"] = node.get("datePublished")
+            if node.get("dateModified") and not dates["mod"]:
+                dates["mod"] = node.get("dateModified")
             
             for k, v in node.items():
                 if k == "@graph": walk(v, True)
@@ -126,8 +127,12 @@ if uploaded:
 
     if st.button("Procesar"):
         results = []
+        progress = st.progress(0.0)
+        status = st.empty()
+        
         for idx, url in enumerate(df[url_col].tolist(), start=1):
-            html, code, _ = fetch_html(url)
+            status.text(f"Procesando {idx}/{len(df)}: {url}")
+            html, code, _ = fetch_html(str(url))
             row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False,
                    "news_pub": None, "news_mod": None, "lb_freq": 0, "lb_created": None, "lb_mod": None}
 
@@ -147,40 +152,44 @@ if uploaded:
                     "lb_mod": lb_info["lb_modified"]
                 })
             results.append(row)
+            progress.progress(idx / len(df))
 
         out = pd.DataFrame(results)
 
         # =========================
-        # PESTAÑAS DE RESULTADOS
+        # VISTA ÚNICA (DEBAJO DEL RESUMEN)
         # =========================
-        tab_resumen, tab_temporal = st.tabs(["📊 Resumen y Tabla", "⏱️ Análisis Temporal"])
+        def has_t(t): return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
+        pct = lambda s: round((s.mean() * 100), 1)
+        
+        st.subheader("Resumen automático")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("% NewsArticle", f"{pct(has_t('NewsArticle'))}%")
+        c2.metric("% Article", f"{pct(has_t('Article'))}%")
+        c3.metric("% Author", f"{pct(out['has_author'])}%")
+        c4.metric("% VideoObject", f"{pct(has_t('VideoObject'))}%")
+        c5.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
+        
+        st.divider()
+        st.subheader("⏱️ Análisis de Frescura (Freshness)")
+        col_news, col_lb = st.columns(2)
+        
+        with col_news:
+            st.markdown("#### 📰 Fechas NewsArticle")
+            news_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "news_pub", "news_mod"]]
+            st.dataframe(news_df, use_container_width=True, hide_index=True)
+        
+        with col_lb:
+            st.markdown("#### 🔴 LiveBlog Frecuencia")
+            lb_only = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_created", "lb_mod"]]
+            st.dataframe(lb_only.rename(columns={"lb_freq": "Freq (Min)"}), use_container_width=True, hide_index=True)
 
-        with tab_resumen:
-            def has_t(t): return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
-            pct = lambda s: round((s.mean() * 100), 1)
-            
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("% NewsArticle", f"{pct(has_t('NewsArticle'))}%")
-            c2.metric("% Article", f"{pct(has_t('Article'))}%")
-            c3.metric("% Author", f"{pct(out['has_author'])}%")
-            c4.metric("% VideoObject", f"{pct(has_t('VideoObject'))}%")
-            c5.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
-            
-            st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True)
+        st.divider()
+        st.subheader("Tabla General de Resultados")
+        st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True, hide_index=True)
 
-        with tab_temporal:
-            st.subheader("Análisis de Frescura (Freshness)")
-            
-            col_news, col_lb = st.columns(2)
-            
-            with col_news:
-                st.markdown("#### 📰 NewsArticle Dates")
-                st.dataframe(out[out["Type"].str.contains("NewsArticle", na=False)][["url", "news_pub", "news_mod"]])
-            
-            with col_lb:
-                st.markdown("#### 🔴 LiveBlog Update Frequency")
-                lb_only = out[out["Type"].str.contains("LiveBlogPosting", na=False)]
-                st.dataframe(lb_only[["url", "lb_freq", "lb_created", "lb_mod"]].rename(columns={"lb_freq": "Freq (Min)"}))
+        csv_bytes = out.to_csv(index=False).encode("utf-8")
+        st.download_button("Descargar Resultados", data=csv_bytes, file_name="resultado_schema.csv")
 
 # --- FIRMA ---
 st.markdown("---")
