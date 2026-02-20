@@ -129,23 +129,19 @@ uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 if uploaded:
     df = pd.read_csv(uploaded)
     
-    # ✅ VALIDACIÓN CON MENSAJES MULTILINGÜES (ES/EN/ZH)
+    # ✅ VALIDACIÓN MULTILINGÜE REFINADA
     if url_col not in df.columns:
         st.error(f"""
-        **¡Hola! Por favor revisá que arriba a la izquierda el nombre de 'Columna URL' coincida con el nombre de la columna donde están las urls de tu csv.**
+        Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
         
-        *Hi there! Please make sure that the 'Columna URL' name on the top-left sidebar matches the column header where your URLs are in the CSV file.*
+        ---
+        Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
+        
+        ---
+        🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
         
         ---
         **Columnas detectadas / Detected columns:** {list(df.columns)}
-        
-        ---
-        **¡Gracias! ¡Abrazo virtual!**
-        
-        *Thanks! Sending a virtual hug!*
-        
-        ---
-        🧧 **如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！**
         """)
         st.stop()
 
