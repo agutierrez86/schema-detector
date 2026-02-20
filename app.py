@@ -129,16 +129,23 @@ uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 if uploaded:
     df = pd.read_csv(uploaded)
     
-    # ✅ VALIDACIÓN CON MENSAJE PERSONALIZADO (ES/EN)
+    # ✅ VALIDACIÓN CON MENSAJES MULTILINGÜES (ES/EN/ZH)
     if url_col not in df.columns:
         st.error(f"""
         **¡Hola! Por favor revisá que arriba a la izquierda el nombre de 'Columna URL' coincida con el nombre de la columna donde están las urls de tu csv.**
         
-        *Hi! Please check that the 'Columna URL' name on the top left matches the column name where the URLs are in your CSV.*
+        *Hi there! Please make sure that the 'Columna URL' name on the top-left sidebar matches the column header where your URLs are in the CSV file.*
         
+        ---
         **Columnas detectadas / Detected columns:** {list(df.columns)}
         
-        **Gracias! Abrazo virtual!**
+        ---
+        **¡Gracias! ¡Abrazo virtual!**
+        
+        *Thanks! Sending a virtual hug!*
+        
+        ---
+        🧧 **如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！**
         """)
         st.stop()
 
@@ -203,7 +210,12 @@ if uploaded:
             with col_lb:
                 st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
                 l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_updates", "lb_creado", "lb_ultima_act"]]
-                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)", "lb_updates": "número de actualizaciones", "lb_creado": "creado", "lb_ultima_act": "última actualización"}), use_container_width=True, hide_index=True)
+                st.dataframe(l_df.rename(columns={
+                    "lb_freq": "Frec. Prom (Min)", 
+                    "lb_updates": "número de actualizaciones",
+                    "lb_creado": "creado", 
+                    "lb_ultima_act": "última actualización"
+                }), use_container_width=True, hide_index=True)
 
 # Firma
 st.markdown("---")
