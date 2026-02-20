@@ -42,15 +42,12 @@ def parse_date(date_str: Any) -> Optional[datetime]:
 
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     update_dates = []
-    created_date = None
-    last_modified = None
-    fallback_created = None
-    fallback_modified = None
+    created_date, last_modified = None, None
+    fallback_created, fallback_modified = None, None
 
     def walk(node: Any):
         nonlocal created_date, last_modified, fallback_created, fallback_modified
         if isinstance(node, dict):
-            # Respaldo de fechas generales (Crucial para AMP e Informador.mx)
             if node.get("datePublished"): fallback_created = node.get("datePublished")
             if node.get("dateModified"): fallback_modified = node.get("dateModified")
 
@@ -71,9 +68,6 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
 
     for b in blocks: walk(b)
     
-    final_created = created_date or fallback_created
-    final_modified = last_modified or fallback_modified
-
     freq = 0
     if len(update_dates) > 1:
         update_dates.sort()
@@ -81,8 +75,8 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
         freq = round(sum(deltas) / len(deltas), 1)
         
     return {
-        "lb_created": final_created,
-        "lb_modified": final_modified,
+        "creado": created_date or fallback_created,
+        "ultima_act": last_modified or fallback_modified,
         "lb_avg_freq": freq
     }
 
@@ -133,7 +127,7 @@ if uploaded:
         for idx, url in enumerate(df[url_col].tolist(), start=1):
             html, code, _ = fetch_html(str(url))
             row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False,
-                   "news_pub": None, "news_mod": None, "lb_freq": 0, "lb_created": None, "lb_mod": None}
+                   "creado": None, "ultima_act": None, "lb_freq": 0, "lb_creado": None, "lb_ultima_act": None}
 
             if html:
                 blocks, _ = parse_jsonld_from_html(html)
@@ -144,18 +138,18 @@ if uploaded:
                     "Type": ", ".join(mains),
                     "Subtype": ", ".join(subs),
                     "has_author": any("author" in str(b) for b in blocks),
-                    "news_pub": dates["pub"],
-                    "news_mod": dates["mod"],
+                    "creado": dates["pub"],
+                    "ultima_act": dates["mod"],
                     "lb_freq": lb_info["lb_avg_freq"],
-                    "lb_created": lb_info["lb_created"],
-                    "lb_mod": lb_info["lb_modified"]
+                    "lb_creado": lb_info["creado"],
+                    "lb_ultima_act": lb_info["ultima_act"]
                 })
             results.append(row)
             progress.progress(idx / len(df))
 
         out = pd.DataFrame(results)
 
-        # RESUMEN DE MÉTRICAS (Fijo arriba)
+        # RESUMEN FIJO
         st.subheader("Resumen automático")
         def has_t(t): return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
         pct = lambda s: round((s.mean() * 100), 1)
@@ -168,13 +162,11 @@ if uploaded:
         
         st.divider()
 
-        # PESTAÑAS DE DETALLE
         tab_general, tab_freshness = st.tabs(["📋 Resultados Generales", "⏱️ Freshness & Live Update"])
 
         with tab_general:
             st.subheader("Tabla de Tipos y Subtipos")
             st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True, hide_index=True)
-            
             csv_bytes = out.to_csv(index=False).encode("utf-8")
             st.download_button("Descargar CSV Completo", data=csv_bytes, file_name="analisis_schema.csv")
 
@@ -184,13 +176,15 @@ if uploaded:
             
             with col_news:
                 st.markdown("**📰 Fechas NewsArticle / Article**")
-                n_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "news_pub", "news_mod"]]
-                st.dataframe(n_df, use_container_width=True, hide_index=True)
+                n_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "creado", "ultima_act"]]
+                st.dataframe(n_df.rename(columns={"creado": "creado", "ultima_act": "última actualización"}), 
+                             use_container_width=True, hide_index=True)
             
             with col_lb:
                 st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
-                l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_created", "lb_mod"]]
-                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)"}), use_container_width=True, hide_index=True)
+                l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_creado", "lb_ultima_act"]]
+                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)", "lb_creado": "creado", "lb_ultima_act": "última actualización"}), 
+                             use_container_width=True, hide_index=True)
 
 # Firma
 st.markdown("---")
