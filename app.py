@@ -89,18 +89,28 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
         "n_updates": len(update_dates)
     }
 
-def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any]]:
+def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any], bool]:
     mains, subtypes = [], []
     dates = {"pub": None, "mod": None}
+    has_real_author = False # Nueva bandera de validación
 
     def walk(node: Any, is_root: bool):
+        nonlocal has_real_author
         if isinstance(node, dict):
-            if "@type" in node:
-                t = node["@type"]
-                current_types = [t] if isinstance(t, str) else [str(x) for x in t]
-                if is_root: mains.extend(current_types)
-                else: subtypes.extend(current_types)
+            t = node.get("@type", "")
+            current_types = [t] if isinstance(t, str) else [str(x) for x in t]
             
+            if is_root: mains.extend(current_types)
+            else: subtypes.extend(current_types)
+
+            # --- NUEVA LÓGICA DE AUTOR ---
+            # Si el nodo es un tipo de artículo y tiene la propiedad 'author'
+            article_types = ["Article", "NewsArticle", "BlogPosting", "LiveBlogPosting"]
+            if any(at in current_types for at in article_types):
+                if "author" in node and node["author"]:
+                    has_real_author = True
+
+            # Captura de fechas
             if node.get("datePublished") and not dates["pub"]:
                 dates["pub"] = node.get("datePublished")
             if node.get("dateModified") and not dates["mod"]:
@@ -113,7 +123,7 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
             for it in node: walk(it, is_root)
 
     for b in blocks: walk(b, True)
-    return list(dict.fromkeys(mains)), list(dict.fromkeys(subtypes)), dates
+    return list(dict.fromkeys(mains)), list(dict.fromkeys(subtypes)), dates, has_real_author
 
 # --- INTERFAZ ---
 
@@ -217,6 +227,7 @@ if uploaded:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
+
 
 
 
