@@ -32,15 +32,19 @@ def parse_jsonld_from_html(html: str) -> Tuple[List[Any], List[str]]:
             errors.append(f"Bloque {i}: {e}")
     return blocks, errors
 
-def parse_date(date_str: Any) -> Optional[datetime]:
+def parse_date(date_str: Any) -> Optional[str]:
+    """Limpia y devuelve la fecha como string legible."""
     if not date_str or not isinstance(date_str, str): return None
     try:
-        clean_date = date_str.split('+')[0].split('Z')[0]
-        return datetime.fromisoformat(clean_date)
+        match = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', date_str)
+        if match:
+            return match.group(0).replace("T", " ")
+        return date_str
     except:
-        return None
+        return str(date_str)
 
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
+    """Analiza frecuencia, fechas y cantidad de actualizaciones de LiveBlog."""
     update_dates = []
     created_date, last_modified = None, None
     fallback_created, fallback_modified = None, None
@@ -59,8 +63,7 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
                 if isinstance(updates, dict): updates = [updates]
                 for up in updates:
                     d = up.get("datePublished") or up.get("dateModified")
-                    parsed = parse_date(d)
-                    if parsed: update_dates.append(parsed)
+                    if d: update_dates.append(d)
             
             for v in node.values(): walk(v)
         elif isinstance(node, list):
@@ -70,14 +73,23 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     
     freq = 0
     if len(update_dates) > 1:
-        update_dates.sort()
-        deltas = [(update_dates[i] - update_dates[i-1]).total_seconds() / 60 for i in range(1, len(update_dates))]
-        freq = round(sum(deltas) / len(deltas), 1)
+        try:
+            parsed_updates = []
+            for d in update_dates:
+                match = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)
+                if match: parsed_updates.append(datetime.fromisoformat(match.group(0)))
+            
+            if len(parsed_updates) > 1:
+                parsed_updates.sort()
+                deltas = [(parsed_updates[i] - parsed_updates[i-1]).total_seconds() / 60 for i in range(1, len(parsed_updates))]
+                freq = round(sum(deltas) / len(deltas), 1)
+        except: pass
         
     return {
-        "creado": created_date or fallback_created,
-        "ultima_act": last_modified or fallback_modified,
-        "lb_avg_freq": freq
+        "creado": parse_date(created_date or fallback_created),
+        "ultima_act": parse_date(last_modified or fallback_modified),
+        "lb_avg_freq": freq,
+        "n_updates": len(update_dates) # Nueva métrica
     }
 
 def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any]]:
@@ -127,7 +139,7 @@ if uploaded:
         for idx, url in enumerate(df[url_col].tolist(), start=1):
             html, code, _ = fetch_html(str(url))
             row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False,
-                   "creado": None, "ultima_act": None, "lb_freq": 0, "lb_creado": None, "lb_ultima_act": None}
+                   "creado": None, "ultima_act": None, "lb_freq": 0, "lb_creado": None, "lb_ultima_act": None, "lb_updates": 0}
 
             if html:
                 blocks, _ = parse_jsonld_from_html(html)
@@ -138,11 +150,12 @@ if uploaded:
                     "Type": ", ".join(mains),
                     "Subtype": ", ".join(subs),
                     "has_author": any("author" in str(b) for b in blocks),
-                    "creado": dates["pub"],
-                    "ultima_act": dates["mod"],
+                    "creado": parse_date(dates["pub"]),
+                    "ultima_act": parse_date(dates["mod"]),
                     "lb_freq": lb_info["lb_avg_freq"],
                     "lb_creado": lb_info["creado"],
-                    "lb_ultima_act": lb_info["ultima_act"]
+                    "lb_ultima_act": lb_info["ultima_act"],
+                    "lb_updates": lb_info["n_updates"]
                 })
             results.append(row)
             progress.progress(idx / len(df))
@@ -182,9 +195,13 @@ if uploaded:
             
             with col_lb:
                 st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
-                l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_creado", "lb_ultima_act"]]
-                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)", "lb_creado": "creado", "lb_ultima_act": "última actualización"}), 
-                             use_container_width=True, hide_index=True)
+                l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_updates", "lb_creado", "lb_ultima_act"]]
+                st.dataframe(l_df.rename(columns={
+                    "lb_freq": "Frec. Prom (Min)", 
+                    "lb_updates": "número de actualizaciones",
+                    "lb_creado": "creado", 
+                    "lb_ultima_act": "última actualización"
+                }), use_container_width=True, hide_index=True)
 
 # Firma
 st.markdown("---")
