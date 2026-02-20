@@ -56,13 +56,11 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
             if "LiveBlogPosting" in str(node.get("@type", "")):
                 created_date = node.get("datePublished")
                 last_modified = node.get("dateModified")
-                
                 updates = node.get("liveBlogUpdate", [])
                 if isinstance(updates, dict): updates = [updates]
                 for up in updates:
                     d = up.get("datePublished") or up.get("dateModified")
                     if d: update_dates.append(d)
-            
             for v in node.values(): walk(v)
         elif isinstance(node, list):
             for it in node: walk(it)
@@ -89,13 +87,21 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
         "n_updates": len(update_dates)
     }
 
-def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any], bool]:
+def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any], bool, str]:
     mains, subtypes = [], []
     dates = {"pub": None, "mod": None}
-    has_real_author = False # Nueva bandera de validación
+    has_real_author = False
+    author_name = "No identificado"
+
+    def get_author_name(author_data):
+        if isinstance(author_data, dict):
+            return author_data.get("name") or author_data.get("alternateName")
+        if isinstance(author_data, list) and len(author_data) > 0:
+            return get_author_name(author_data[0])
+        return str(author_data) if author_data else None
 
     def walk(node: Any, is_root: bool):
-        nonlocal has_real_author
+        nonlocal has_real_author, author_name
         if isinstance(node, dict):
             t = node.get("@type", "")
             current_types = [t] if isinstance(t, str) else [str(x) for x in t]
@@ -103,14 +109,14 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
             if is_root: mains.extend(current_types)
             else: subtypes.extend(current_types)
 
-            # --- NUEVA LÓGICA DE AUTOR ---
-            # Si el nodo es un tipo de artículo y tiene la propiedad 'author'
+            # --- LÓGICA DE AUTOR REFORZADA ---
             article_types = ["Article", "NewsArticle", "BlogPosting", "LiveBlogPosting"]
             if any(at in current_types for at in article_types):
                 if "author" in node and node["author"]:
                     has_real_author = True
+                    name = get_author_name(node["author"])
+                    if name: author_name = name
 
-            # Captura de fechas
             if node.get("datePublished") and not dates["pub"]:
                 dates["pub"] = node.get("datePublished")
             if node.get("dateModified") and not dates["mod"]:
@@ -123,7 +129,7 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
             for it in node: walk(it, is_root)
 
     for b in blocks: walk(b, True)
-    return list(dict.fromkeys(mains)), list(dict.fromkeys(subtypes)), dates, has_real_author
+    return list(dict.fromkeys(mains)), list(dict.fromkeys(subtypes)), dates, has_real_author, author_name
 
 # --- INTERFAZ ---
 
@@ -139,17 +145,13 @@ uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 if uploaded:
     df = pd.read_csv(uploaded)
     
-    # ✅ VALIDACIÓN MULTILINGÜE REFINADA
     if url_col not in df.columns:
         st.error(f"""
         Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
-        
         ---
         Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
-        
         ---
         🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
-        
         ---
         **Columnas detectadas / Detected columns:** {list(df.columns)}
         """)
@@ -163,18 +165,19 @@ if uploaded:
         
         for idx, url in enumerate(df_subset[url_col].tolist(), start=1):
             html, code, _ = fetch_html(str(url))
-            row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False,
+            row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False, "author_name": "",
                    "creado": None, "ultima_act": None, "lb_freq": 0, "lb_creado": None, "lb_ultima_act": None, "lb_updates": 0}
 
             if html:
                 blocks, _ = parse_jsonld_from_html(html)
-                mains, subs, dates = extract_hierarchical_types(blocks)
+                mains, subs, dates, has_auth, auth_name = extract_hierarchical_types(blocks)
                 lb_info = analyze_liveblog(blocks)
                 
                 row.update({
                     "Type": ", ".join(mains),
                     "Subtype": ", ".join(subs),
-                    "has_author": any("author" in str(b) for b in blocks),
+                    "has_author": has_auth,
+                    "author_name": auth_name,
                     "creado": parse_date(dates["pub"]),
                     "ultima_act": parse_date(dates["mod"]),
                     "lb_freq": lb_info["lb_avg_freq"],
@@ -187,23 +190,24 @@ if uploaded:
 
         out = pd.DataFrame(results)
 
-        # RESUMEN
+        # RESUMEN MÉTRICAS
         st.subheader("Resumen automático")
         def has_t(t): return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
         pct = lambda s: round((s.mean() * 100), 1)
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("% NewsArticle", f"{pct(has_t('NewsArticle'))}%")
         c2.metric("% Article", f"{pct(has_t('Article'))}%")
-        c3.metric("% Author", f"{pct(out['has_author'])}%")
+        c3.metric("% Firmado (Author)", f"{pct(out['has_author'])}%")
         c4.metric("% VideoObject", f"{pct(has_t('VideoObject'))}%")
         c5.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
         
         st.divider()
 
-        tab_general, tab_freshness = st.tabs(["📋 Resultados Generales", "⏱️ Freshness"])
+        tab_general, tab_freshness = st.tabs(["📋 Resultados Generales", "⏱️ Freshness & Live Update"])
 
         with tab_general:
-            st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True, hide_index=True)
+            st.subheader("Análisis de Autoría y Tipos")
+            st.dataframe(out[["url", "status", "Type", "author_name", "has_author"]].rename(columns={"author_name": "autor", "has_author": "firmado"}), use_container_width=True, hide_index=True)
             csv_bytes = out.to_csv(index=False).encode("utf-8")
             st.download_button("Descargar CSV", data=csv_bytes, file_name="analisis_seo.csv")
 
@@ -216,19 +220,9 @@ if uploaded:
             with col_lb:
                 st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
                 l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_updates", "lb_creado", "lb_ultima_act"]]
-                st.dataframe(l_df.rename(columns={
-                    "lb_freq": "Frec. Prom (Min)", 
-                    "lb_updates": "número de actualizaciones",
-                    "lb_creado": "creado", 
-                    "lb_ultima_act": "última actualización"
-                }), use_container_width=True, hide_index=True)
+                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)", "lb_updates": "número de actualizaciones", "lb_creado": "creado", "lb_ultima_act": "última actualización"}), use_container_width=True, hide_index=True)
 
 # Firma
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
-
-
-
-
-
