@@ -145,17 +145,21 @@ uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 if uploaded:
     df = pd.read_csv(uploaded)
     
-    if url_col not in df.columns:
-        st.error(f"""
-        Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
-        ---
-        Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
-        ---
-        🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
-        ---
-        **Columnas detectadas / Detected columns:** {list(df.columns)}
-        """)
-        st.stop()
+   # ✅ VALIDACIÓN MULTILINGÜE REFINADA (CON TEXTO NORMAL)
+if url_col not in df.columns:
+    st.error(f"""
+    Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
+    
+    ---
+    Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
+    
+    ---
+    🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
+    
+    ---
+    Columnas detectadas / Detected columns: {", ".join(list(df.columns))}
+    """)
+    st.stop()
 
     df_subset = df.head(int(max_rows))
 
@@ -226,3 +230,4 @@ if uploaded:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
+
