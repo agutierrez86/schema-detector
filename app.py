@@ -35,29 +35,31 @@ def parse_jsonld_from_html(html: str) -> Tuple[List[Any], List[str]]:
 def parse_date(date_str: Any) -> Optional[datetime]:
     if not date_str or not isinstance(date_str, str): return None
     try:
-        # Intenta parsear formatos ISO comunes (quitar zona horaria para simplificar)
         clean_date = date_str.split('+')[0].split('Z')[0]
         return datetime.fromisoformat(clean_date)
     except:
         return None
 
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
-    """Analiza la frecuencia y fechas de un LiveBlogPosting."""
     update_dates = []
     created_date = None
     last_modified = None
-    
+    fallback_created = None
+    fallback_modified = None
+
     def walk(node: Any):
-        nonlocal created_date, last_modified
+        nonlocal created_date, last_modified, fallback_created, fallback_modified
         if isinstance(node, dict):
+            # Respaldo de fechas generales (Crucial para AMP e Informador.mx)
+            if node.get("datePublished"): fallback_created = node.get("datePublished")
+            if node.get("dateModified"): fallback_modified = node.get("dateModified")
+
             if "LiveBlogPosting" in str(node.get("@type", "")):
                 created_date = node.get("datePublished")
                 last_modified = node.get("dateModified")
                 
-                # Buscar las actualizaciones (pueden estar en liveBlogUpdate)
                 updates = node.get("liveBlogUpdate", [])
                 if isinstance(updates, dict): updates = [updates]
-                
                 for up in updates:
                     d = up.get("datePublished") or up.get("dateModified")
                     parsed = parse_date(d)
@@ -69,18 +71,19 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
 
     for b in blocks: walk(b)
     
+    final_created = created_date or fallback_created
+    final_modified = last_modified or fallback_modified
+
     freq = 0
     if len(update_dates) > 1:
         update_dates.sort()
-        deltas = [(update_dates[i] - update_dates[i-1]).total_seconds() / 60 
-                  for i in range(1, len(update_dates))]
+        deltas = [(update_dates[i] - update_dates[i-1]).total_seconds() / 60 for i in range(1, len(update_dates))]
         freq = round(sum(deltas) / len(deltas), 1)
         
     return {
-        "lb_created": created_date,
-        "lb_modified": last_modified,
-        "lb_avg_freq": freq,
-        "lb_updates_count": len(update_dates)
+        "lb_created": final_created,
+        "lb_modified": final_modified,
+        "lb_avg_freq": freq
     }
 
 def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any]]:
@@ -95,8 +98,6 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
                 if is_root: mains.extend(current_types)
                 else: subtypes.extend(current_types)
             
-            # Búsqueda agresiva de fechas: si existen en este nodo, las guardamos
-            # Esto ayuda con URLs tipo AMP como las de Informador.mx
             if node.get("datePublished") and not dates["pub"]:
                 dates["pub"] = node.get("datePublished")
             if node.get("dateModified") and not dates["mod"]:
@@ -128,10 +129,8 @@ if uploaded:
     if st.button("Procesar"):
         results = []
         progress = st.progress(0.0)
-        status = st.empty()
         
         for idx, url in enumerate(df[url_col].tolist(), start=1):
-            status.text(f"Procesando {idx}/{len(df)}: {url}")
             html, code, _ = fetch_html(str(url))
             row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False,
                    "news_pub": None, "news_mod": None, "lb_freq": 0, "lb_created": None, "lb_mod": None}
@@ -156,13 +155,10 @@ if uploaded:
 
         out = pd.DataFrame(results)
 
-        # =========================
-        # VISTA ÚNICA (DEBAJO DEL RESUMEN)
-        # =========================
+        # RESUMEN DE MÉTRICAS (Fijo arriba)
+        st.subheader("Resumen automático")
         def has_t(t): return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
         pct = lambda s: round((s.mean() * 100), 1)
-        
-        st.subheader("Resumen automático")
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("% NewsArticle", f"{pct(has_t('NewsArticle'))}%")
         c2.metric("% Article", f"{pct(has_t('Article'))}%")
@@ -171,35 +167,32 @@ if uploaded:
         c5.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
         
         st.divider()
-        st.subheader("⏱️ Análisis de Frescura (Freshness)")
-        col_news, col_lb = st.columns(2)
-        
-        with col_news:
-            st.markdown("#### 📰 Fechas NewsArticle")
-            news_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "news_pub", "news_mod"]]
-            st.dataframe(news_df, use_container_width=True, hide_index=True)
-        
-        with col_lb:
-            st.markdown("#### 🔴 LiveBlog Frecuencia")
-            lb_only = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_created", "lb_mod"]]
-            st.dataframe(lb_only.rename(columns={"lb_freq": "Freq (Min)"}), use_container_width=True, hide_index=True)
 
-        st.divider()
-        st.subheader("Tabla General de Resultados")
-        st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True, hide_index=True)
+        # PESTAÑAS DE DETALLE
+        tab_general, tab_freshness = st.tabs(["📋 Resultados Generales", "⏱️ Freshness & Live Update"])
 
-        csv_bytes = out.to_csv(index=False).encode("utf-8")
-        st.download_button("Descargar Resultados", data=csv_bytes, file_name="resultado_schema.csv")
+        with tab_general:
+            st.subheader("Tabla de Tipos y Subtipos")
+            st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True, hide_index=True)
+            
+            csv_bytes = out.to_csv(index=False).encode("utf-8")
+            st.download_button("Descargar CSV Completo", data=csv_bytes, file_name="analisis_schema.csv")
 
-# --- FIRMA ---
+        with tab_freshness:
+            st.subheader("Auditoría Temporal")
+            col_news, col_lb = st.columns(2)
+            
+            with col_news:
+                st.markdown("**📰 Fechas NewsArticle / Article**")
+                n_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "news_pub", "news_mod"]]
+                st.dataframe(n_df, use_container_width=True, hide_index=True)
+            
+            with col_lb:
+                st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
+                l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_created", "lb_mod"]]
+                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)"}), use_container_width=True, hide_index=True)
+
+# Firma
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
-st.markdown(f"""
-    <div style="display: flex; align-items: center; justify-content: center; gap: 15px;">
-        <img src="{logo_url}" width="30">
-        <div style="font-size: 14px;">
-            Creado por <strong>Agustín Gutierrez</strong><br>
-            <a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
