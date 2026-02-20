@@ -33,7 +33,6 @@ def parse_jsonld_from_html(html: str) -> Tuple[List[Any], List[str]]:
     return blocks, errors
 
 def parse_date(date_str: Any) -> Optional[str]:
-    """Limpia y devuelve la fecha como string legible."""
     if not date_str or not isinstance(date_str, str): return None
     try:
         match = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', date_str)
@@ -44,7 +43,6 @@ def parse_date(date_str: Any) -> Optional[str]:
         return str(date_str)
 
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
-    """Analiza frecuencia, fechas y cantidad de actualizaciones de LiveBlog."""
     update_dates = []
     created_date, last_modified = None, None
     fallback_created, fallback_modified = None, None
@@ -78,7 +76,6 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
             for d in update_dates:
                 match = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)
                 if match: parsed_updates.append(datetime.fromisoformat(match.group(0)))
-            
             if len(parsed_updates) > 1:
                 parsed_updates.sort()
                 deltas = [(parsed_updates[i] - parsed_updates[i-1]).total_seconds() / 60 for i in range(1, len(parsed_updates))]
@@ -89,7 +86,7 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
         "creado": parse_date(created_date or fallback_created),
         "ultima_act": parse_date(last_modified or fallback_modified),
         "lb_avg_freq": freq,
-        "n_updates": len(update_dates) # Nueva métrica
+        "n_updates": len(update_dates)
     }
 
 def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any]]:
@@ -130,13 +127,28 @@ with st.sidebar:
 uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 
 if uploaded:
-    df = pd.read_csv(uploaded).head(int(max_rows))
+    df = pd.read_csv(uploaded)
+    
+    # ✅ VALIDACIÓN CON MENSAJE PERSONALIZADO (ES/EN)
+    if url_col not in df.columns:
+        st.error(f"""
+        **¡Hola! Por favor revisá que arriba a la izquierda el nombre de 'Columna URL' coincida con el nombre de la columna donde están las urls de tu csv.**
+        
+        *Hi! Please check that the 'Columna URL' name on the top left matches the column name where the URLs are in your CSV.*
+        
+        **Columnas detectadas / Detected columns:** {list(df.columns)}
+        
+        **Gracias! Abrazo virtual!**
+        """)
+        st.stop()
+
+    df_subset = df.head(int(max_rows))
 
     if st.button("Procesar"):
         results = []
         progress = st.progress(0.0)
         
-        for idx, url in enumerate(df[url_col].tolist(), start=1):
+        for idx, url in enumerate(df_subset[url_col].tolist(), start=1):
             html, code, _ = fetch_html(str(url))
             row = {"url": url, "status": code, "Type": "", "Subtype": "", "has_author": False,
                    "creado": None, "ultima_act": None, "lb_freq": 0, "lb_creado": None, "lb_ultima_act": None, "lb_updates": 0}
@@ -158,11 +170,11 @@ if uploaded:
                     "lb_updates": lb_info["n_updates"]
                 })
             results.append(row)
-            progress.progress(idx / len(df))
+            progress.progress(idx / len(df_subset))
 
         out = pd.DataFrame(results)
 
-        # RESUMEN FIJO
+        # RESUMEN
         st.subheader("Resumen automático")
         def has_t(t): return out["Type"].str.contains(rf"(^|,\s*){re.escape(t)}(,\s*|$)", regex=True)
         pct = lambda s: round((s.mean() * 100), 1)
@@ -178,30 +190,20 @@ if uploaded:
         tab_general, tab_freshness = st.tabs(["📋 Resultados Generales", "⏱️ Freshness & Live Update"])
 
         with tab_general:
-            st.subheader("Tabla de Tipos y Subtipos")
             st.dataframe(out[["url", "status", "Type", "Subtype"]], use_container_width=True, hide_index=True)
             csv_bytes = out.to_csv(index=False).encode("utf-8")
-            st.download_button("Descargar CSV Completo", data=csv_bytes, file_name="analisis_schema.csv")
+            st.download_button("Descargar CSV", data=csv_bytes, file_name="analisis_seo.csv")
 
         with tab_freshness:
-            st.subheader("Auditoría Temporal")
             col_news, col_lb = st.columns(2)
-            
             with col_news:
                 st.markdown("**📰 Fechas NewsArticle / Article**")
                 n_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "creado", "ultima_act"]]
-                st.dataframe(n_df.rename(columns={"creado": "creado", "ultima_act": "última actualización"}), 
-                             use_container_width=True, hide_index=True)
-            
+                st.dataframe(n_df.rename(columns={"creado": "creado", "ultima_act": "última actualización"}), use_container_width=True, hide_index=True)
             with col_lb:
                 st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
                 l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_updates", "lb_creado", "lb_ultima_act"]]
-                st.dataframe(l_df.rename(columns={
-                    "lb_freq": "Frec. Prom (Min)", 
-                    "lb_updates": "número de actualizaciones",
-                    "lb_creado": "creado", 
-                    "lb_ultima_act": "última actualización"
-                }), use_container_width=True, hide_index=True)
+                st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)", "lb_updates": "número de actualizaciones", "lb_creado": "creado", "lb_ultima_act": "última actualización"}), use_container_width=True, hide_index=True)
 
 # Firma
 st.markdown("---")
