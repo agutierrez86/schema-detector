@@ -137,19 +137,23 @@ with st.sidebar:
     st.header("Opciones")
     url_col = st.text_input("Columna URL", value="url")
     max_rows = st.number_input("Máx. filas", min_value=1, value=50)
+    # ✅ AGREGAMOS EL BOTÓN AQUÍ PARA EVITAR EL ERROR
+    remove_dupes = st.checkbox("Quitar URLs duplicadas", value=True)
 
 uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 
 if uploaded is not None:
     try:
         df = pd.read_csv(uploaded)
+        
+        # Ahora remove_dupes ya existe y no dará error
         if remove_dupes and url_col in df.columns:
             initial_count = len(df)
             df = df.drop_duplicates(subset=[url_col])
             final_count = len(df)
             if initial_count > final_count:
                 st.info(f"Se eliminaron {initial_count - final_count} URLs duplicadas. Procesando {final_count} únicas.")
-        # ✅ VALIDACIÓN REFINADA (SIN LETRAS GIGANTES Y SIN ERROR DE NOMBRE)
+        
         if url_col not in df.columns:
             st.error(f"""
             Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
@@ -235,4 +239,3 @@ if uploaded is not None:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
-
