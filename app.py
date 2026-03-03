@@ -72,10 +72,9 @@ def analyze_multimedia(blocks: List[Any], meta_tags: Dict[str, str]) -> Dict[str
     return res
 
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
-    update_dates = []
+    update_dates, seen_nodes = [], set()
     created_date, last_modified = None, None
     fallback_created, fallback_modified = None, None
-    seen_nodes = set()
     def walk(node: Any):
         nonlocal created_date, last_modified, fallback_created, fallback_modified
         if id(node) in seen_nodes: return
@@ -105,17 +104,16 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
                 freq = round(sum(deltas) / len(deltas), 1)
         except: pass
     return {
-        "creado": parse_date(created_date or fallback_created),
-        "ultima_act": parse_date(last_modified or fallback_modified),
+        "lb_creado": parse_date(created_date or fallback_created),
+        "lb_ultima_act": parse_date(last_modified or fallback_modified),
         "lb_freq": freq,
-        "n_updates": len(update_dates)
+        "lb_updates": len(update_dates)
     }
 
 def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any], bool, str]:
-    mains, subs = [], []
+    mains, subs, seen_nodes = [], [], set()
     dates = {"pub": None, "mod": None}
     has_auth, auth_name = False, "No identificado"
-    seen_nodes = set()
     def get_auth(data):
         if isinstance(data, dict): return data.get("name") or data.get("alternateName")
         if isinstance(data, list) and len(data) > 0: return get_auth(data[0])
@@ -159,7 +157,7 @@ if uploaded is not None:
         if remove_dupes and url_col in df.columns:
             df = df.drop_duplicates(subset=[url_col])
         if url_col not in df.columns:
-            st.error(f"Hola! Por favor revisá que arriba a la izquierda... \n\nColumnas: {', '.join(list(df.columns))}")
+            st.error(f"Error! Revisa la columna URL...\n\nDetected: {', '.join(list(df.columns))}")
             st.stop()
 
         if st.button("Procesar"):
@@ -175,8 +173,9 @@ if uploaded is not None:
                     lb_info = analyze_liveblog(blocks)
                     multi = analyze_multimedia(blocks, meta)
                     row.update({
-                        "Type": ", ".join(mains), "Subtypes": ", ".join(subs),
-                        "autor": auth_name, "firmado": has_auth,
+                        "Type": ", ".join(mains), "Subtype": ", ".join(subs),
+                        "autor": auth_name, "has_author": has_auth,
+                        "creado": parse_date(dates["pub"]), "ultima_act": parse_date(dates["mod"]),
                         **lb_info, **multi
                     })
                 results.append(row)
@@ -184,29 +183,35 @@ if uploaded is not None:
 
             out = pd.DataFrame(results)
 
-            # RESUMEN
+            # MÉTRICAS RESUMEN (SÓLO NEWSARTICLE COMO PEDISTE)
             c1, c2, c3, c4 = st.columns(4)
             pct = lambda s: round((s.mean() * 100), 1) if not s.empty else 0
             c1.metric("% NewsArticle", f"{pct(out['Type'].str.contains('NewsArticle', na=False))}%")
-            c2.metric("% Firmado", f"{pct(out['firmado'])}%")
+            c2.metric("% Firmado", f"{pct(out['has_author'])}%")
             c3.metric("% Video", f"{pct(out['url_video'] != '❌')}%")
             c4.metric("% LiveBlog", f"{pct(out['Type'].str.contains('LiveBlogPosting', na=False))}%")
 
-            t1, t2, t3 = st.tabs(["📋 General", "⏱️ Freshness & Live", "🎬 Multimedia"])
+            t1, t2, t3 = st.tabs(["📋 General", "⏱️ Freshness & Live Update", "🎬 Multimedia"])
+            
             with t1:
-                st.dataframe(out[["url", "status", "Type", "Subtypes", "autor"]], use_container_width=True, hide_index=True)
+                st.dataframe(out[["url", "status", "Type", "autor", "has_author"]].rename(columns={"has_author": "firmado"}), use_container_width=True, hide_index=True)
+            
             with t2:
-                # RETORNO A LA LÓGICA ANTERIOR DE FRESHNESS
-                st.subheader("Auditoría de Tiempos y Live Updates")
-                # Se utiliza la estructura que tenías antes: Publicado, Actualizado y datos de LiveBlog
-                st.dataframe(out[["url", "creado", "ultima_act", "lb_freq", "n_updates"]].rename(columns={
-                    "creado": "creado", 
-                    "ultima_act": "última actualización",
-                    "lb_freq": "Frec. Prom (Min)", 
-                    "n_updates": "número de actualizaciones"
-                }), use_container_width=True, hide_index=True)
+                # RECUPERAMOS TU LÓGICA DE DOS COLUMNAS
+                col_news, col_lb = st.columns(2)
+                with col_news:
+                    st.markdown("**📰 Fechas NewsArticle / Article**")
+                    n_df = out[out["Type"].str.contains("NewsArticle|Article", na=False)][["url", "creado", "ultima_act"]]
+                    st.dataframe(n_df.rename(columns={"ultima_act": "última actualización"}), use_container_width=True, hide_index=True)
+                with col_lb:
+                    st.markdown("**🔴 LiveBlog: Frecuencia y Fechas**")
+                    l_df = out[out["Type"].str.contains("LiveBlogPosting", na=False)][["url", "lb_freq", "lb_updates", "lb_creado", "lb_ultima_act"]]
+                    st.dataframe(l_df.rename(columns={"lb_freq": "Frec. Prom (Min)", "lb_updates": "número de actualizaciones", "lb_creado": "creado", "lb_ultima_act": "última actualización"}), use_container_width=True, hide_index=True)
+
             with t3:
+                st.subheader("URLs de Elementos Multimedia (Discover Audit)")
                 st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "url_video"]], use_container_width=True, hide_index=True)
+
     except Exception as e:
         st.error(f"Error: {e}")
 
