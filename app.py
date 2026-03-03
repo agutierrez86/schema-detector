@@ -217,7 +217,7 @@ if uploaded is not None:
                 }), use_container_width=True, hide_index=True)
             with t3:
                 # AQUÍ LOS NOMBRES TÉCNICOS SOLICITADOS
-                st.subheader("URLs de Elementos Multimedia (Discover Audit)")
+                st.subheader("Elementos multimedia")
                 st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "url_video"]].rename(columns={
                     "primaryImageOfPage": "primaryImageOfPage",
                     "mainEntityImage": "mainEntityImage",
@@ -231,3 +231,4 @@ if uploaded is not None:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Sara vigila tu Schema - Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
+
