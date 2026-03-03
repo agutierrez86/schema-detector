@@ -38,41 +38,22 @@ def parse_jsonld_from_html(html: str) -> Tuple[List[Any], List[str]]:
     return blocks, errors
 
 def analyze_multimedia(blocks: List[Any], meta_tags: Dict[str, str]) -> Dict[str, str]:
-    """Analiza las 4 fuentes multimedia clave según documentación de Google."""
-    res = {
-        "primaryImageOfPage": "❌",
-        "mainEntityImage": "❌",
-        "ogImage": "❌",
-        "hasVideo": "❌ No"
-    }
-    
-    if meta_tags.get("og_image"):
-        res["ogImage"] = "✅"
+    res = {"primaryImageOfPage": "❌", "mainEntityImage": "❌", "ogImage": "❌", "hasVideo": "❌ No"}
+    if meta_tags.get("og_image"): res["ogImage"] = "✅"
 
     def walk(node: Any):
         if isinstance(node, dict):
-            # 1. primaryImageOfPage (WebPage)
-            if "primaryImageOfPage" in node:
-                res["primaryImageOfPage"] = "✅"
-            
-            # 2. image en Entidad Principal (Article, etc)
+            if "primaryImageOfPage" in node: res["primaryImageOfPage"] = "✅"
             types = str(node.get("@type", ""))
             if any(t in types for t in ["Article", "NewsArticle", "BlogPosting"]):
-                if "image" in node:
-                    res["mainEntityImage"] = "✅"
-            
-            # 3. VideoObject
-            if "VideoObject" in types:
-                res["hasVideo"] = "✅ Sí"
-            
+                if "image" in node: res["mainEntityImage"] = "✅"
+            if "VideoObject" in types: res["hasVideo"] = "✅ Sí"
             for v in node.values(): walk(v)
         elif isinstance(node, list):
             for it in node: walk(it)
 
     for b in blocks: walk(b)
     return res
-
-# --- [FUNCIONES DE SOPORTE: parse_date, analyze_liveblog, extract_hierarchical_types...] ---
 
 def parse_date(date_str: Any) -> Optional[str]:
     if not date_str or not isinstance(date_str, str): return None
@@ -140,7 +121,7 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
                 if k == "@graph": walk(v, True)
                 else: walk(v, False)
         elif isinstance(node, list):
-            for it in node: walk(it, is_root)
+            for it in node, is_root: walk(it, is_root)
     for b in blocks: walk(b, True)
     return list(dict.fromkeys(mains)), list(dict.fromkeys(subs)), dates, has_auth, auth_name
 
@@ -157,10 +138,25 @@ uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 if uploaded is not None:
     try:
         df = pd.read_csv(uploaded)
+        
+        # ✅ LÓGICA DE DUPLICADOS
         if remove_dupes and url_col in df.columns:
             df = df.drop_duplicates(subset=[url_col])
+        
+        # ✅ MENSAJES MULTILINGÜES (ES/EN/ZH)
         if url_col not in df.columns:
-            st.error(f"Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida... \n\nColumnas: {', '.join(list(df.columns))}")
+            st.error(f"""
+            Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
+            
+            ---
+            Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
+            
+            ---
+            🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
+            
+            ---
+            Columnas detectadas / Detected columns: {", ".join(list(df.columns))}
+            """)
             st.stop()
 
         df_subset = df.head(int(max_rows))
@@ -185,7 +181,7 @@ if uploaded is not None:
                         "lb_creado": lb_info["creado"],
                         "lb_ultima_act": lb_info["ultima_act"],
                         "lb_updates": lb_info["n_updates"],
-                        **multi # Añade las 4 columnas multimedia
+                        **multi
                     })
                 results.append(row)
                 progress.progress(idx / len(df_subset))
@@ -196,13 +192,13 @@ if uploaded is not None:
             
             with tab_gen:
                 st.dataframe(out[["url", "status", "Type", "autor"]], use_container_width=True, hide_index=True)
+                csv_bytes = out.to_csv(index=False).encode("utf-8")
+                st.download_button("Descargar CSV", data=csv_bytes, file_name="analisis_schema.csv")
             
             with tab_fresh:
                 st.dataframe(out[["url", "creado", "ultima_act", "lb_freq", "lb_updates"]], use_container_width=True, hide_index=True)
 
             with tab_multi:
-                st.subheader("Auditoría Multimedia para Discover y Search")
-                # Las 4 columnas solicitadas
                 st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "hasVideo"]].rename(columns={
                     "primaryImageOfPage": "Foto WebPage (Preferida)",
                     "mainEntityImage": "Foto Artículo",
