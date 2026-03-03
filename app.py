@@ -74,12 +74,15 @@ def analyze_multimedia(blocks: List[Any], meta_tags: Dict[str, str]) -> Dict[str
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     update_dates = []
     created_date, last_modified = None, None
+    fallback_created, fallback_modified = None, None
     seen_nodes = set()
     def walk(node: Any):
-        nonlocal created_date, last_modified
+        nonlocal created_date, last_modified, fallback_created, fallback_modified
         if id(node) in seen_nodes: return
         seen_nodes.add(id(node))
         if isinstance(node, dict):
+            if node.get("datePublished"): fallback_created = node.get("datePublished")
+            if node.get("dateModified"): fallback_modified = node.get("dateModified")
             if "LiveBlogPosting" in str(node.get("@type", "")):
                 created_date = node.get("datePublished")
                 last_modified = node.get("dateModified")
@@ -95,16 +98,18 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     freq = 0
     if len(update_dates) > 1:
         try:
-            p_up = []
-            for d in update_dates:
-                m = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)
-                if m: p_up.append(datetime.fromisoformat(m.group(0)))
+            p_up = [datetime.fromisoformat(re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d).group(0)) for d in update_dates if re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)]
             if len(p_up) > 1:
                 p_up.sort()
                 deltas = [(p_up[i] - p_up[i-1]).total_seconds() / 60 for i in range(1, len(p_up))]
                 freq = round(sum(deltas) / len(deltas), 1)
         except: pass
-    return {"lb_creado": parse_date(created_date), "lb_ultima_act": parse_date(last_modified), "lb_freq": freq, "lb_updates": len(update_dates)}
+    return {
+        "creado": parse_date(created_date or fallback_created),
+        "ultima_act": parse_date(last_modified or fallback_modified),
+        "lb_freq": freq,
+        "n_updates": len(update_dates)
+    }
 
 def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any], bool, str]:
     mains, subs = [], []
@@ -153,20 +158,8 @@ if uploaded is not None:
         df = pd.read_csv(uploaded)
         if remove_dupes and url_col in df.columns:
             df = df.drop_duplicates(subset=[url_col])
-        
         if url_col not in df.columns:
-            st.error(f"""
-            Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
-            
-            ---
-            Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
-            
-            ---
-            🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
-            
-            ---
-            Columnas detectadas / Detected columns: {", ".join(list(df.columns))}
-            """)
+            st.error(f"Hola! Por favor revisá que arriba a la izquierda... \n\nColumnas: {', '.join(list(df.columns))}")
             st.stop()
 
         if st.button("Procesar"):
@@ -182,12 +175,8 @@ if uploaded is not None:
                     lb_info = analyze_liveblog(blocks)
                     multi = analyze_multimedia(blocks, meta)
                     row.update({
-                        "Type": ", ".join(mains),
-                        "Subtypes": ", ".join(subs),
-                        "autor": auth_name,
-                        "firmado": has_auth,
-                        "creado": parse_date(dates["pub"]),
-                        "ultima_act": parse_date(dates["mod"]),
+                        "Type": ", ".join(mains), "Subtypes": ", ".join(subs),
+                        "autor": auth_name, "firmado": has_auth,
                         **lb_info, **multi
                     })
                 results.append(row)
@@ -195,41 +184,31 @@ if uploaded is not None:
 
             out = pd.DataFrame(results)
 
-            # MÉTRICAS AJUSTADAS (QUITAMOS ARTICLE)
-            st.subheader("Resumen automático")
-            c1, c2, c3, c4 = st.columns(4) # Reajustado a 4 columnas
-            def has_t(t): return out["Type"].str.contains(rf"{t}", na=False)
+            # RESUMEN
+            c1, c2, c3, c4 = st.columns(4)
             pct = lambda s: round((s.mean() * 100), 1) if not s.empty else 0
-            
-            c1.metric("% NewsArticle", f"{pct(has_t('NewsArticle'))}%")
-            c2.metric("% Firmado (Author)", f"{pct(out['firmado'])}%")
-            c3.metric("% Video Detectado", f"{pct(out['url_video'] != '❌')}%")
-            c4.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
-
-            st.divider()
+            c1.metric("% NewsArticle", f"{pct(out['Type'].str.contains('NewsArticle', na=False))}%")
+            c2.metric("% Firmado", f"{pct(out['firmado'])}%")
+            c3.metric("% Video", f"{pct(out['url_video'] != '❌')}%")
+            c4.metric("% LiveBlog", f"{pct(out['Type'].str.contains('LiveBlogPosting', na=False))}%")
 
             t1, t2, t3 = st.tabs(["📋 General", "⏱️ Freshness & Live", "🎬 Multimedia"])
             with t1:
                 st.dataframe(out[["url", "status", "Type", "Subtypes", "autor"]], use_container_width=True, hide_index=True)
             with t2:
+                # RETORNO A LA LÓGICA ANTERIOR DE FRESHNESS
                 st.subheader("Auditoría de Tiempos y Live Updates")
-                st.dataframe(out[["url", "creado", "ultima_act", "lb_creado", "lb_ultima_act", "lb_freq", "lb_updates"]].rename(columns={
-                    "creado": "Publicado (Art)", "ultima_act": "Actualizado (Art)",
-                    "lb_creado": "Inicio Live", "lb_ultima_act": "Último Live",
-                    "lb_freq": "Frec. Prom (Min)", "lb_updates": "Número de actualizaciones"
+                # Se utiliza la estructura que tenías antes: Publicado, Actualizado y datos de LiveBlog
+                st.dataframe(out[["url", "creado", "ultima_act", "lb_freq", "n_updates"]].rename(columns={
+                    "creado": "creado", 
+                    "ultima_act": "última actualización",
+                    "lb_freq": "Frec. Prom (Min)", 
+                    "n_updates": "número de actualizaciones"
                 }), use_container_width=True, hide_index=True)
             with t3:
-                st.subheader("URLs de Elementos Multimedia (Discover Audit)")
-                st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "url_video"]].rename(columns={
-                    "primaryImageOfPage": "primaryImageOfPage",
-                    "mainEntityImage": "mainEntityImage",
-                    "ogImage": "og:image",
-                    "url_video": "Video Detectado (URL)"
-                }), use_container_width=True, hide_index=True)
-
+                st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "url_video"]], use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Error: {e}")
 
 st.markdown("---")
-logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
-st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Sara vigila tu Schema - Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align:center;">Sara vigila tu Schema - Creado por <strong>Agustín Gutierrez</strong></div>', unsafe_allow_html=True)
