@@ -155,9 +155,25 @@ if uploaded is not None:
     try:
         df = pd.read_csv(uploaded)
         if remove_dupes and url_col in df.columns:
+            initial_count = len(df)
             df = df.drop_duplicates(subset=[url_col])
+            if initial_count > len(df):
+                st.info(f"Se eliminaron {initial_count - len(df)} URLs duplicadas. Procesando {len(df)} únicas.")
+        
+        # ✅ RECUPERACIÓN DE MENSAJES MULTILINGÜES ORIGINALES
         if url_col not in df.columns:
-            st.error(f"Error! Revisa la columna URL...\n\nDetected: {', '.join(list(df.columns))}")
+            st.error(f"""
+            Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
+            
+            ---
+            Hi! Please check that the 'Columna URL' name on the top left matches the name of the column where the URLs are in your CSV. Thanks! Virtual hug!
+            
+            ---
+            🧧 如果你为了寻找错误而特意翻译这段文字，我祝贺你：时刻核实你在网上看到的一切是个好习惯。拥抱！！
+            
+            ---
+            Columnas detectadas / Detected columns: {", ".join(list(df.columns))}
+            """)
             st.stop()
 
         if st.button("Procesar"):
@@ -174,7 +190,7 @@ if uploaded is not None:
                     multi = analyze_multimedia(blocks, meta)
                     row.update({
                         "Type": ", ".join(mains), "Subtype": ", ".join(subs),
-                        "autor": auth_name, "has_author": has_auth,
+                        "autor": auth_name, "firmado": has_auth,
                         "creado": parse_date(dates["pub"]), "ultima_act": parse_date(dates["mod"]),
                         **lb_info, **multi
                     })
@@ -183,21 +199,21 @@ if uploaded is not None:
 
             out = pd.DataFrame(results)
 
-            # MÉTRICAS RESUMEN (SÓLO NEWSARTICLE COMO PEDISTE)
+            # RESUMEN
             c1, c2, c3, c4 = st.columns(4)
             pct = lambda s: round((s.mean() * 100), 1) if not s.empty else 0
             c1.metric("% NewsArticle", f"{pct(out['Type'].str.contains('NewsArticle', na=False))}%")
-            c2.metric("% Firmado", f"{pct(out['has_author'])}%")
+            c2.metric("% Firmado", f"{pct(out['firmado'])}%")
             c3.metric("% Video", f"{pct(out['url_video'] != '❌')}%")
             c4.metric("% LiveBlog", f"{pct(out['Type'].str.contains('LiveBlogPosting', na=False))}%")
 
             t1, t2, t3 = st.tabs(["📋 General", "⏱️ Freshness & Live Update", "🎬 Multimedia"])
             
             with t1:
-                st.dataframe(out[["url", "status", "Type", "autor", "has_author"]].rename(columns={"has_author": "firmado"}), use_container_width=True, hide_index=True)
+                st.dataframe(out[["url", "status", "Type", "autor", "firmado"]], use_container_width=True, hide_index=True)
             
             with t2:
-                # RECUPERAMOS TU LÓGICA DE DOS COLUMNAS
+                # ✅ RECUPERACIÓN DE TU LÓGICA DE DOS COLUMNAS EN FRESHNESS
                 col_news, col_lb = st.columns(2)
                 with col_news:
                     st.markdown("**📰 Fechas NewsArticle / Article**")
