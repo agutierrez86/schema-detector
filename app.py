@@ -17,7 +17,6 @@ def fetch_html(url: str, timeout: int = 20) -> Tuple[Optional[str], Optional[int
     try:
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         soup = BeautifulSoup(r.text, "html.parser")
-        # Capturamos og:image para el análisis multimedia
         og_img = soup.find("meta", property="og:image")
         if og_img: meta_tags["og_image"] = og_img.get("content", "")
         return r.text, r.status_code, None, meta_tags
@@ -40,8 +39,13 @@ def parse_jsonld_from_html(html: str) -> Tuple[List[Any], List[str]]:
 def analyze_multimedia(blocks: List[Any], meta_tags: Dict[str, str]) -> Dict[str, str]:
     res = {"primaryImageOfPage": "❌", "mainEntityImage": "❌", "ogImage": "❌", "hasVideo": "❌ No"}
     if meta_tags.get("og_image"): res["ogImage"] = "✅"
+    
+    seen_nodes = set()
 
     def walk(node: Any):
+        if id(node) in seen_nodes: return
+        seen_nodes.add(id(node))
+        
         if isinstance(node, dict):
             if "primaryImageOfPage" in node: res["primaryImageOfPage"] = "✅"
             types = str(node.get("@type", ""))
@@ -67,8 +71,13 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     update_dates = []
     created_date, last_modified = None, None
     fallback_created, fallback_modified = None, None
+    seen_nodes = set()
+
     def walk(node: Any):
         nonlocal created_date, last_modified, fallback_created, fallback_modified
+        if id(node) in seen_nodes: return
+        seen_nodes.add(id(node))
+
         if isinstance(node, dict):
             if node.get("datePublished"): fallback_created = node.get("datePublished")
             if node.get("dateModified"): fallback_modified = node.get("dateModified")
@@ -83,11 +92,15 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
             for v in node.values(): walk(v)
         elif isinstance(node, list):
             for it in node: walk(it)
+            
     for b in blocks: walk(b)
     freq = 0
     if len(update_dates) > 1:
         try:
-            p_up = [datetime.fromisoformat(re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d).group(0)) for d in update_dates if re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)]
+            p_up = []
+            for d in update_dates:
+                m = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)
+                if m: p_up.append(datetime.fromisoformat(m.group(0)))
             if len(p_up) > 1:
                 p_up.sort()
                 deltas = [(p_up[i] - p_up[i-1]).total_seconds() / 60 for i in range(1, len(p_up))]
@@ -99,29 +112,39 @@ def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str],
     mains, subs = [], []
     dates = {"pub": None, "mod": None}
     has_auth, auth_name = False, "No identificado"
+    seen_nodes = set()
+
     def get_auth(data):
         if isinstance(data, dict): return data.get("name") or data.get("alternateName")
         if isinstance(data, list) and len(data) > 0: return get_auth(data[0])
         return str(data) if data else None
+
     def walk(node: Any, is_root: bool):
         nonlocal has_auth, auth_name
+        if id(node) in seen_nodes: return
+        seen_nodes.add(id(node))
+
         if isinstance(node, dict):
             t = node.get("@type", "")
             curr = [t] if isinstance(t, str) else [str(x) for x in t]
             if is_root: mains.extend(curr)
             else: subs.extend(curr)
+            
             if any(at in curr for at in ["Article", "NewsArticle", "BlogPosting", "LiveBlogPosting"]):
                 if "author" in node and node["author"]:
                     has_auth = True
                     name = get_auth(node["author"])
                     if name: auth_name = name
+            
             if node.get("datePublished") and not dates["pub"]: dates["pub"] = node.get("datePublished")
             if node.get("dateModified") and not dates["mod"]: dates["mod"] = node.get("dateModified")
+            
             for k, v in node.items():
                 if k == "@graph": walk(v, True)
                 else: walk(v, False)
         elif isinstance(node, list):
-            for it in node, is_root: walk(it, is_root)
+            for it in node: walk(it, is_root)
+
     for b in blocks: walk(b, True)
     return list(dict.fromkeys(mains)), list(dict.fromkeys(subs)), dates, has_auth, auth_name
 
@@ -138,12 +161,9 @@ uploaded = st.file_uploader("Subí tu CSV", type=["csv"])
 if uploaded is not None:
     try:
         df = pd.read_csv(uploaded)
-        
-        # ✅ LÓGICA DE DUPLICADOS
         if remove_dupes and url_col in df.columns:
             df = df.drop_duplicates(subset=[url_col])
         
-        # ✅ MENSAJES MULTILINGÜES (ES/EN/ZH)
         if url_col not in df.columns:
             st.error(f"""
             Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
@@ -187,7 +207,6 @@ if uploaded is not None:
                 progress.progress(idx / len(df_subset))
 
             out = pd.DataFrame(results)
-            
             tab_gen, tab_fresh, tab_multi = st.tabs(["📋 General", "⏱️ Freshness", "🎬 Multimedia"])
             
             with tab_gen:
@@ -199,6 +218,7 @@ if uploaded is not None:
                 st.dataframe(out[["url", "creado", "ultima_act", "lb_freq", "lb_updates"]], use_container_width=True, hide_index=True)
 
             with tab_multi:
+                st.subheader("Auditoría Multimedia para Discover y Search")
                 st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "hasVideo"]].rename(columns={
                     "primaryImageOfPage": "Foto WebPage (Preferida)",
                     "mainEntityImage": "Foto Artículo",
