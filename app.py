@@ -195,15 +195,18 @@ if uploaded is not None:
 
             out = pd.DataFrame(results)
 
-            # MÉTRICAS
-            c1, c2, c3, c4, c5 = st.columns(5)
+            # MÉTRICAS AJUSTADAS (QUITAMOS ARTICLE)
+            st.subheader("Resumen automático")
+            c1, c2, c3, c4 = st.columns(4) # Reajustado a 4 columnas
             def has_t(t): return out["Type"].str.contains(rf"{t}", na=False)
             pct = lambda s: round((s.mean() * 100), 1) if not s.empty else 0
+            
             c1.metric("% NewsArticle", f"{pct(has_t('NewsArticle'))}%")
-            c2.metric("% Article", f"{pct(has_t('Article'))}%")
-            c3.metric("% Firmado", f"{pct(out['firmado'])}%")
-            c4.metric("% Video Detectado", f"{pct(out['url_video'] != '❌')}%")
-            c5.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
+            c2.metric("% Firmado (Author)", f"{pct(out['firmado'])}%")
+            c3.metric("% Video Detectado", f"{pct(out['url_video'] != '❌')}%")
+            c4.metric("% LiveBlog", f"{pct(has_t('LiveBlogPosting'))}%")
+
+            st.divider()
 
             t1, t2, t3 = st.tabs(["📋 General", "⏱️ Freshness & Live", "🎬 Multimedia"])
             with t1:
@@ -216,8 +219,7 @@ if uploaded is not None:
                     "lb_freq": "Frec. Prom (Min)", "lb_updates": "Número de actualizaciones"
                 }), use_container_width=True, hide_index=True)
             with t3:
-                # AQUÍ LOS NOMBRES TÉCNICOS SOLICITADOS
-                st.subheader("Elementos multimedia")
+                st.subheader("URLs de Elementos Multimedia (Discover Audit)")
                 st.dataframe(out[["url", "primaryImageOfPage", "mainEntityImage", "ogImage", "url_video"]].rename(columns={
                     "primaryImageOfPage": "primaryImageOfPage",
                     "mainEntityImage": "mainEntityImage",
@@ -231,4 +233,3 @@ if uploaded is not None:
 st.markdown("---")
 logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
 st.markdown(f'<div style="display:flex;align-items:center;justify-content:center;gap:15px;"><img src="{logo_url}" width="30"><div>Sara vigila tu Schema - Creado por <strong>Agustín Gutierrez</strong><br><a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a></div></div>', unsafe_allow_html=True)
-
