@@ -231,5 +231,16 @@ if uploaded is not None:
     except Exception as e:
         st.error(f"Error: {e}")
 
+# --- FIRMA RESTAURADA CON LINKEDIN ---
 st.markdown("---")
-st.markdown('<div style="text-align:center;">Sara vigila tu Schema - Creado por <strong>Agustín Gutierrez</strong></div>', unsafe_allow_html=True)
+logo_url = "https://cdn-icons-png.flaticon.com/512/174/174857.png" 
+st.markdown(f'''
+    <div style="display:flex;align-items:center;justify-content:center;gap:15px;">
+        <img src="{logo_url}" width="30">
+        <div>
+            Sara vigila tu Schema - Creado por <strong>Agustín Gutierrez</strong><br>
+            <a href="https://www.linkedin.com/in/agutierrez86/" target="_blank">LinkedIn</a>
+        </div>
+    </div>
+''', unsafe_allow_html=True)
+
