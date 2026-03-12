@@ -224,23 +224,32 @@ if uploaded is not None:
             """)
             st.stop()
 
-        if st.button("Procesar"):
+       if st.button("Procesar"):
             results = []
             progress = st.progress(0.0)
             df_subset = df.head(int(max_rows))
+            
             for idx, url in enumerate(df_subset[url_col].tolist(), start=1):
                 html, code, _, meta = fetch_html(str(url))
                 row = {"url": url, "status": code}
                 if html:
                     blocks, _ = parse_jsonld_from_html(html)
-                    mains, subs, dates, has_auth, auth_name = extract_hierarchical_types(blocks)
+                    
+                    # ✅ AQUÍ ESTÁ EL ARREGLO: Pasamos 'url' a la función
+                    mains, subs, dates, has_auth, auth_name = extract_hierarchical_types(blocks, url)
+                    
                     lb_info = analyze_liveblog(blocks)
                     multi = analyze_multimedia(blocks, meta)
+                    
                     row.update({
-                        "Type": ", ".join(mains), "Subtype": ", ".join(subs),
-                        "autor": auth_name, "firmado": has_auth,
-                        "creado": parse_date(dates["pub"]), "ultima_act": parse_date(dates["mod"]),
-                        **lb_info, **multi
+                        "Type": ", ".join(mains), 
+                        "Subtype": ", ".join(subs),
+                        "autor": auth_name, 
+                        "firmado": has_auth,
+                        "creado": parse_date(dates["pub"]), 
+                        "ultima_act": parse_date(dates["mod"]),
+                        **lb_info, 
+                        **multi
                     })
                 results.append(row)
                 progress.progress(idx / len(df_subset))
@@ -291,6 +300,7 @@ st.markdown(f'''
         </div>
     </div>
 ''', unsafe_allow_html=True)
+
 
 
 
