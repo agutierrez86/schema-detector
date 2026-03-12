@@ -45,30 +45,54 @@ def parse_date(date_str: Any) -> Optional[str]:
     except: return str(date_str)
 
 def analyze_multimedia(blocks: List[Any], meta_tags: Dict[str, str]) -> Dict[str, str]:
-    res = {"primaryImageOfPage": "❌", "mainEntityImage": "❌", "ogImage": meta_tags.get("og_image", "❌"), "url_video": "❌"}
+    res = {
+        "primaryImageOfPage": "❌", 
+        "mainEntityImage": "❌", 
+        "ogImage": meta_tags.get("og_image", "❌"), 
+        "url_video": "❌ No detectado"
+    }
+    video_sources = [] 
     seen_nodes = set()
+
     def get_url(val):
-        if isinstance(val, dict): return val.get("url") or val.get("contentUrl")
+        if isinstance(val, dict): return val.get("url") or val.get("contentUrl") or val.get("embedUrl")
         return val if isinstance(val, str) else None
+
     def walk(node: Any):
         if id(node) in seen_nodes: return
         seen_nodes.add(id(node))
         if isinstance(node, dict):
+            # Imágenes (se mantiene igual)
             if "primaryImageOfPage" in node:
                 u = get_url(node["primaryImageOfPage"])
                 if u: res["primaryImageOfPage"] = u
+            
             t = str(node.get("@type", ""))
             if any(at in t for at in ["Article", "NewsArticle", "BlogPosting"]):
                 if "image" in node:
                     u = get_url(node["image"])
                     if u: res["mainEntityImage"] = u
+            
+            # --- DETECCIÓN DE YOUTUBE ---
             if "VideoObject" in t:
-                u = node.get("contentUrl") or node.get("embedUrl") or node.get("url")
-                if u: res["url_video"] = u
+                u_v = node.get("contentUrl") or node.get("embedUrl") or node.get("url")
+                if u_v:
+                    u_v_str = str(u_v).lower()
+                    if "youtube.com" in u_v_str or "youtu.be" in u_v_str:
+                        video_sources.append(f"YouTube ✅ ({u_v})")
+                    else:
+                        video_sources.append(f"Propio/Otro 🎥 ({u_v})")
+            
             for v in node.values(): walk(v)
         elif isinstance(node, list):
             for it in node: walk(it)
+
     for b in blocks: walk(b)
+    
+    if video_sources:
+        # Los unimos con un salto de línea para que se vean uno debajo del otro
+        res["url_video"] = "\n".join(video_sources)
+        
     return res
 
 def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
@@ -286,3 +310,4 @@ st.markdown(f'''
         </div>
     </div>
 ''', unsafe_allow_html=True)
+
