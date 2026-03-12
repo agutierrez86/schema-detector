@@ -82,7 +82,6 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
         seen_nodes.add(id(node))
         
         if isinstance(node, dict):
-            # Validamos que sea un diccionario antes de usar .get()
             if node.get("datePublished") and not fallback_created: 
                 fallback_created = node.get("datePublished")
             if node.get("dateModified") and not fallback_modified: 
@@ -94,7 +93,6 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
                 updates = node.get("liveBlogUpdate", [])
                 if isinstance(updates, dict): updates = [updates]
                 for up in updates:
-                    # Aquí también validamos que 'up' sea un diccionario
                     if isinstance(up, dict):
                         d = up.get("datePublished") or up.get("dateModified")
                         if d: update_dates.append(d)
@@ -131,12 +129,11 @@ def extract_hierarchical_types(blocks: List[Any], current_url: str) -> Tuple[Lis
     dates = {"pub": None, "mod": None}
     has_auth, auth_name = False, "No identificado"
     
-    # Extraemos el nombre base del sitio desde la URL para comparar (ej. "infobae")
     site_domain_name = ""
     try:
         from urllib.parse import urlparse
         domain = urlparse(current_url).netloc
-        site_domain_name = domain.split('.')[-2].lower() # Toma "infobae" de "www.infobae.com"
+        site_domain_name = domain.split('.')[-2].lower()
     except:
         pass
 
@@ -158,17 +155,12 @@ def extract_hierarchical_types(blocks: List[Any], current_url: str) -> Tuple[Lis
             if is_root: mains.extend(curr)
             else: subs.extend(curr)
             
-            # --- LÓGICA DE FIRMA REFORZADA (PERSONA + FILTRO DE NOMBRE) ---
             if any(at in curr for at in ["Article", "NewsArticle", "BlogPosting", "LiveBlogPosting"]):
                 if "author" in node and node["author"]:
                     name, a_type = get_auth_info(node["author"])
                     if name:
                         auth_name = name
                         name_lower = str(name).lower()
-                        
-                        # CONDICIONES PARA "FIRMADO" (TRUE):
-                        # 1. El tipo debe ser Person
-                        # 2. El nombre no debe contener el nombre del sitio (ej. "Staff Infobae" o "Infobae Deportes")
                         is_person = (a_type == "Person")
                         is_not_site_name = site_domain_name not in name_lower if site_domain_name else True
                         
@@ -208,7 +200,6 @@ if uploaded is not None:
             if initial_count > len(df):
                 st.info(f"Se eliminaron {initial_count - len(df)} URLs duplicadas. Procesando {len(df)} únicas.")
         
-        # ✅ RECUPERACIÓN DE MENSAJES MULTILINGÜES ORIGINALES
         if url_col not in df.columns:
             st.error(f"""
             Hola! Por favor revisá que arriba a la izquierda el nombre de Columna URL coincida con el nombre de la columna donde están las urls de tu csv. Gracias! Abrazo virtual!
@@ -224,7 +215,7 @@ if uploaded is not None:
             """)
             st.stop()
 
-       if st.button("Procesar"):
+        if st.button("Procesar"):
             results = []
             progress = st.progress(0.0)
             df_subset = df.head(int(max_rows))
@@ -234,10 +225,7 @@ if uploaded is not None:
                 row = {"url": url, "status": code}
                 if html:
                     blocks, _ = parse_jsonld_from_html(html)
-                    
-                    # ✅ AQUÍ ESTÁ EL ARREGLO: Pasamos 'url' a la función
                     mains, subs, dates, has_auth, auth_name = extract_hierarchical_types(blocks, url)
-                    
                     lb_info = analyze_liveblog(blocks)
                     multi = analyze_multimedia(blocks, meta)
                     
@@ -256,7 +244,6 @@ if uploaded is not None:
 
             out = pd.DataFrame(results)
 
-            # RESUMEN
             c1, c2, c3, c4 = st.columns(4)
             pct = lambda s: round((s.mean() * 100), 1) if not s.empty else 0
             c1.metric("% NewsArticle", f"{pct(out['Type'].str.contains('NewsArticle', na=False))}%")
@@ -270,7 +257,6 @@ if uploaded is not None:
                 st.dataframe(out[["url", "status", "Type", "autor", "firmado"]], use_container_width=True, hide_index=True)
             
             with t2:
-                # ✅ RECUPERACIÓN DE TU LÓGICA DE DOS COLUMNAS EN FRESHNESS
                 col_news, col_lb = st.columns(2)
                 with col_news:
                     st.markdown("**📰 Fechas NewsArticle / Article**")
@@ -300,7 +286,3 @@ st.markdown(f'''
         </div>
     </div>
 ''', unsafe_allow_html=True)
-
-
-
-
