@@ -75,34 +75,50 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
     update_dates, seen_nodes = [], set()
     created_date, last_modified = None, None
     fallback_created, fallback_modified = None, None
+
     def walk(node: Any):
         nonlocal created_date, last_modified, fallback_created, fallback_modified
         if id(node) in seen_nodes: return
         seen_nodes.add(id(node))
+        
         if isinstance(node, dict):
-            if node.get("datePublished"): fallback_created = node.get("datePublished")
-            if node.get("dateModified"): fallback_modified = node.get("dateModified")
+            # Validamos que sea un diccionario antes de usar .get()
+            if node.get("datePublished") and not fallback_created: 
+                fallback_created = node.get("datePublished")
+            if node.get("dateModified") and not fallback_modified: 
+                fallback_modified = node.get("dateModified")
+
             if "LiveBlogPosting" in str(node.get("@type", "")):
                 created_date = node.get("datePublished")
                 last_modified = node.get("dateModified")
                 updates = node.get("liveBlogUpdate", [])
                 if isinstance(updates, dict): updates = [updates]
                 for up in updates:
-                    d = up.get("datePublished") or up.get("dateModified")
-                    if d: update_dates.append(d)
+                    # Aquí también validamos que 'up' sea un diccionario
+                    if isinstance(up, dict):
+                        d = up.get("datePublished") or up.get("dateModified")
+                        if d: update_dates.append(d)
+            
             for v in node.values(): walk(v)
+            
         elif isinstance(node, list):
             for it in node: walk(it)
+
     for b in blocks: walk(b)
+    
     freq = 0
     if len(update_dates) > 1:
         try:
-            p_up = [datetime.fromisoformat(re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d).group(0)) for d in update_dates if re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)]
+            p_up = []
+            for d in update_dates:
+                m = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', d)
+                if m: p_up.append(datetime.fromisoformat(m.group(0)))
             if len(p_up) > 1:
                 p_up.sort()
                 deltas = [(p_up[i] - p_up[i-1]).total_seconds() / 60 for i in range(1, len(p_up))]
                 freq = round(sum(deltas) / len(deltas), 1)
         except: pass
+        
     return {
         "lb_creado": parse_date(created_date or fallback_created),
         "lb_ultima_act": parse_date(last_modified or fallback_modified),
@@ -243,4 +259,5 @@ st.markdown(f'''
         </div>
     </div>
 ''', unsafe_allow_html=True)
+
 
