@@ -126,34 +126,66 @@ def analyze_liveblog(blocks: List[Any]) -> Dict[str, Any]:
         "lb_updates": len(update_dates)
     }
 
-def extract_hierarchical_types(blocks: List[Any]) -> Tuple[List[str], List[str], Dict[str, Any], bool, str]:
+def extract_hierarchical_types(blocks: List[Any], current_url: str) -> Tuple[List[str], List[str], Dict[str, Any], bool, str]:
     mains, subs, seen_nodes = [], [], set()
     dates = {"pub": None, "mod": None}
     has_auth, auth_name = False, "No identificado"
-    def get_auth(data):
-        if isinstance(data, dict): return data.get("name") or data.get("alternateName")
-        if isinstance(data, list) and len(data) > 0: return get_auth(data[0])
-        return str(data) if data else None
+    
+    # Extraemos el nombre base del sitio desde la URL para comparar (ej. "infobae")
+    site_domain_name = ""
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(current_url).netloc
+        site_domain_name = domain.split('.')[-2].lower() # Toma "infobae" de "www.infobae.com"
+    except:
+        pass
+
+    def get_auth_info(data):
+        if isinstance(data, dict):
+            return data.get("name"), data.get("@type")
+        if isinstance(data, list) and len(data) > 0:
+            return get_auth_info(data[0])
+        return None, None
+
     def walk(node: Any, is_root: bool):
         if id(node) in seen_nodes: return
         seen_nodes.add(id(node))
         nonlocal has_auth, auth_name
+        
         if isinstance(node, dict):
             t = node.get("@type", "")
             curr = [t] if isinstance(t, str) else [str(x) for x in t]
             if is_root: mains.extend(curr)
             else: subs.extend(curr)
+            
+            # --- LÓGICA DE FIRMA REFORZADA (PERSONA + FILTRO DE NOMBRE) ---
             if any(at in curr for at in ["Article", "NewsArticle", "BlogPosting", "LiveBlogPosting"]):
                 if "author" in node and node["author"]:
-                    has_auth, name = True, get_auth(node["author"])
-                    if name: auth_name = name
+                    name, a_type = get_auth_info(node["author"])
+                    if name:
+                        auth_name = name
+                        name_lower = str(name).lower()
+                        
+                        # CONDICIONES PARA "FIRMADO" (TRUE):
+                        # 1. El tipo debe ser Person
+                        # 2. El nombre no debe contener el nombre del sitio (ej. "Staff Infobae" o "Infobae Deportes")
+                        is_person = (a_type == "Person")
+                        is_not_site_name = site_domain_name not in name_lower if site_domain_name else True
+                        
+                        if is_person and is_not_site_name:
+                            has_auth = True
+                        else:
+                            has_auth = False
+            
             if node.get("datePublished") and not dates["pub"]: dates["pub"] = node.get("datePublished")
             if node.get("dateModified") and not dates["mod"]: dates["mod"] = node.get("dateModified")
+            
             for k, v in node.items():
                 if k == "@graph": walk(v, True)
                 else: walk(v, False)
         elif isinstance(node, list):
             for it in node: walk(it, is_root)
+
     for b in blocks: walk(b, True)
     return list(dict.fromkeys(mains)), list(dict.fromkeys(subs)), dates, has_auth, auth_name
 
@@ -259,5 +291,6 @@ st.markdown(f'''
         </div>
     </div>
 ''', unsafe_allow_html=True)
+
 
 
